@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from aiohttp import web
 
 from .config import (
     SMA_FAST, SMA_SLOW, TIMEFRAMES, TOP_N_COINS,
@@ -166,8 +167,28 @@ class SMAScanner:
             await self._send_signals(signals)
         return signals
 
+    async def _health_server(self):
+        async def health(request):
+            return web.Response(text="OK")
+        app = web.Application()
+        app.router.add_get("/health", health)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", 8080)
+        await site.start()
+        logger.info("Health server started on :8080")
+        while self.running:
+            await asyncio.sleep(60)
+        await runner.cleanup()
+
     async def run_loop(self):
         self.running = True
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(self._health_server())
+            tg.create_task(self._run_scanner())
+        logger.info("Scanner loop stopped")
+
+    async def _run_scanner(self):
         await self.telegram.send_message(
             self.telegram.format_startup(len(self.watchlist) or TOP_N_COINS, TIMEFRAMES)
         )

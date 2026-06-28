@@ -41,11 +41,11 @@ async def async_main(args):
             if args.once:
                 await scanner.run_once()
             else:
-                loop_task = asyncio.create_task(scanner.run_loop())
+                shutdown_event = asyncio.Event()
 
                 def shutdown():
                     scanner.stop()
-                    loop_task.cancel()
+                    shutdown_event.set()
 
                 loop = asyncio.get_running_loop()
                 for sig in (signal.SIGINT, signal.SIGTERM):
@@ -53,9 +53,13 @@ async def async_main(args):
                         loop.add_signal_handler(sig, shutdown)
                     except NotImplementedError:
                         pass
+
+                scan_task = asyncio.create_task(scanner.run_loop())
+                await shutdown_event.wait()
+                scan_task.cancel()
                 try:
-                    await loop_task
-                except asyncio.CancelledError:
+                    await scan_task
+                except (asyncio.CancelledError, Exception):
                     pass
 
         elif args.command == "watchlist":
